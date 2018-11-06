@@ -12,14 +12,25 @@
  *                                        File Include                                                  *
  ********************************************************************************************************/
 #include <stdio.h>
+#include <string.h>
+#include <pthread.h>
 
 #include "typedef.h"
 #include "list.h"
+#include "tree.h"
 
 /********************************************************************************************************
  *                                        Defines                                                       *
  ********************************************************************************************************/
-
+typedef struct tree_note
+{
+    list_node_t      node;
+    u8               *pname;        //节点名称
+    int              item_cout;     //节点下面有多少个子节点
+    struct tree_note *pfather_note; //指向父节点的指针
+    list_node_t      son_head;      //子节点的头部
+    void             *data;         //指向数据域的指针
+}s_tree_note_t;
 
 /********************************************************************************************************
  *                                        Global Variables                                              *
@@ -34,7 +45,7 @@
 /********************************************************************************************************
  *                                        Local Functions Declaring                                     *
  ********************************************************************************************************/
-//static s_tree_root_t tree_root = NOTE_ROOT_INIT(tree_root);
+static s_tree_root_t tree_root = NOTE_ROOT_INIT(tree_root);
 
 /********************************************************************************************************
  *                                        Local Functions                                               *
@@ -65,6 +76,45 @@ static const u8 *name_list_find_next(const u8 *name_list)
     return NULL;
 }
 
+static int first_note_name_len(const u8 *name_list)
+{
+    const u8 *ptmp = name_list;
+    while(1)
+    {
+        if( ('\0' == *ptmp) || \
+            ( ('-' == *ptmp) && ('>' == *(ptmp+1)) ) )
+        {
+            break;
+        }
+
+        ptmp++;
+    }
+
+    return ptmp - name_list;
+}
+
+static s_tree_note_t *find_note_from_namelist(list_node_t *head, const u8 *name_list)
+{
+    const u8 *pnote_name = name_list;
+    int note_name_len = first_note_name_len(name_list);
+    list_node_t   *pnode = NULL;
+    s_tree_note_t *ptree = NULL;
+    LIST_FOR_EACH_FIFO( head, pnode)
+    {
+        ptree = LIST_ENTRY(s_tree_note_t, node, pnode);
+        if( 0 == strncmp(ptree->pname, pnote_name, note_name_len) )
+        {
+            return ptree;
+        }
+    }
+
+    return NULL;
+}
+
+static s_tree_note_t *malloc_for_new_note(const u8 *name_list, int datasize)
+{
+    return NULL;
+}
 /********************************************************************************************************
  *                                        Global Functions                                              *
  ********************************************************************************************************/
@@ -80,26 +130,53 @@ static const u8 *name_list_find_next(const u8 *name_list)
  ***********************************************************/
 int tree_add(const u8 *name_list, const void *value, const int value_len)
 {
-    const u8 *pnext = NULL;
+    s_tree_note_t *ptree = NULL;
+    const u8      *pnext = NULL;
+    list_node_t   *phead = tree_root.head.pnext;
 
-    printf("name_list: %s\n", name_list);
+    pthread_mutex_lock(&tree_root.tree_lock);
 
-    while(1)
+    for(; NULL != name_list; name_list = pnext)
     {
-        pnext = name_list_find_next(name_list);
-        if( NULL != pnext )
-        {
-            printf("name list left: %s\n", pnext);
-        }
-        else
-        {
-            printf("find over!\n");
-            break;
-        }
+        s_tree_note_t *ptree_parent = ptree;  //<lihf> 指向当前节点的父节点
 
-        name_list = pnext;
+        pnext = name_list_find_next(name_list);
+        ptree = find_note_from_namelist(phead, name_list);
+        if(NULL == ptree)
+        {
+            if( (NULL != ptree_parent) && (ptree_parent->item_cout >1024) )
+            {
+                printf("满员了，不再申请");
+                pthread_mutex_unlock(&tree_root.tree_lock);
+                return ERROR;
+            }
+
+            ptree = malloc_for_new_note(name_list, (NULL == pnext) ? value_len : 0);
+            if(NULL == ptree)
+            {
+                printf("节点申请内存不成功");
+                pthread_mutex_unlock(&tree_root.tree_lock);
+                return ERROR;
+            }
+
+            ptree->pfather_note = ptree_parent;
+            if(NULL != ptree_parent)
+            {
+                ptree_parent->item_cout++;
+            }
+
+            //<lihf> 把新申请的节点插入链表之中
+            list_insert_after(phead, &ptree->node);
+        }
+        phead = &ptree->son_head;
     }
 
+    if( (NULL != value) && (value_len > 0) && (NULL != ptree->data) )
+    {
+        memcpy((u8 *)ptree->data, (u8 *)value, value_len);
+    }
+
+    pthread_mutex_unlock(&tree_root.tree_lock);
     return NO_ERROR;
 }
 
