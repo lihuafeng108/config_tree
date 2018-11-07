@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <pthread.h>
+#include <stdlib.h>
 
 #include "typedef.h"
 #include "list.h"
@@ -30,6 +31,7 @@ typedef struct tree_note
     struct tree_note *pfather_note; //指向父节点的指针
     list_node_t      son_head;      //子节点的头部
     void             *data;         //指向数据域的指针
+    int              datasize;      //数据长度，字符串形式
 }s_tree_note_t;
 
 /********************************************************************************************************
@@ -90,7 +92,7 @@ static int first_note_name_len(const u8 *name_list)
         ptmp++;
     }
 
-    return ptmp - name_list;
+    return ptmp - name_list - 1;
 }
 
 static s_tree_note_t *find_note_from_namelist(list_node_t *head, const u8 *name_list)
@@ -99,6 +101,8 @@ static s_tree_note_t *find_note_from_namelist(list_node_t *head, const u8 *name_
     int note_name_len = first_note_name_len(name_list);
     list_node_t   *pnode = NULL;
     s_tree_note_t *ptree = NULL;
+
+
     LIST_FOR_EACH_FIFO( head, pnode)
     {
         ptree = LIST_ENTRY(s_tree_note_t, node, pnode);
@@ -113,7 +117,36 @@ static s_tree_note_t *find_note_from_namelist(list_node_t *head, const u8 *name_
 
 static s_tree_note_t *malloc_for_new_note(const u8 *name_list, int datasize)
 {
-    return NULL;
+    int note_name_len = first_note_name_len(name_list);
+
+    note_name_len += 1;  //预留一个结束符的位置
+    s_tree_note_t *ptree = malloc(sizeof(s_tree_note_t) + note_name_len + datasize);
+    if(NULL == ptree)
+    {
+        return NULL;
+    }
+
+    //初始化一下分配的内存
+    ptree->data = NULL;
+    ptree->pname = (u8 *)(ptree + 1);
+
+    memcpy((u8 *)ptree->pname, name_list, note_name_len);
+    ptree->pname[note_name_len] = '\0';
+    printf("ptree->pname[len = %d]: %s\n", note_name_len, (u8 *)ptree->pname);
+
+    ptree->datasize     = 0;
+    ptree->item_cout    = 0;
+    ptree->pfather_note = NULL;
+
+    if(datasize > 0)
+    {
+        ptree->data = ptree->pname + note_name_len;
+        ptree->datasize = datasize;
+    }
+
+    list_init(&ptree->son_head);
+
+    return ptree;
 }
 /********************************************************************************************************
  *                                        Global Functions                                              *
@@ -132,7 +165,8 @@ int tree_add(const u8 *name_list, const void *value, const int value_len)
 {
     s_tree_note_t *ptree = NULL;
     const u8      *pnext = NULL;
-    list_node_t   *phead = tree_root.head.pnext;
+    //list_node_t   *phead = tree_root.head.pprev;  //<lihf> 这样是不行的哦
+    list_node_t   *phead = &tree_root.head;
 
     pthread_mutex_lock(&tree_root.tree_lock);
 
@@ -144,9 +178,10 @@ int tree_add(const u8 *name_list, const void *value, const int value_len)
         ptree = find_note_from_namelist(phead, name_list);
         if(NULL == ptree)
         {
+            printf("<lihf> didn't find the note from head\n");
             if( (NULL != ptree_parent) && (ptree_parent->item_cout >1024) )
             {
-                printf("满员了，不再申请");
+                printf("满员了，不再申请\n");
                 pthread_mutex_unlock(&tree_root.tree_lock);
                 return ERROR;
             }
@@ -154,7 +189,7 @@ int tree_add(const u8 *name_list, const void *value, const int value_len)
             ptree = malloc_for_new_note(name_list, (NULL == pnext) ? value_len : 0);
             if(NULL == ptree)
             {
-                printf("节点申请内存不成功");
+                printf("节点申请内存不成功\n");
                 pthread_mutex_unlock(&tree_root.tree_lock);
                 return ERROR;
             }

@@ -55,11 +55,13 @@
  ********************************************************************************************************/
 int main(void)
 {
-    const u8 test_name_List[] = "tree0->node0->value=0";
+    const u8 test_name_List[] = "tree0->node0->value";
     const u8 value[10] = "20";
     int value_len = sizeof(value);
+    const u8 test_name_List2[] = "tree0->node0->name";
 
     tree_add( test_name_List, value, value_len);
+    tree_add( test_name_List2, value, value_len);
 }
 
 
